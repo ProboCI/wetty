@@ -91,30 +91,50 @@ if (runhttps) {
 }
 
 var io = server(httpserv,{path: '/wetty/socket.io'});
+
+// @TODO here we should ping back the probo app to get
 io.on('connection', function(socket){
     var sshuser = '';
+    var sshpass = 'vagrant';
     var request = socket.request;
+
+    // @TODO: From the request, get an authentication key.
+    // The key should be a salted version of what, the build id? And of course the build id should be in there also. Where is that salt stored? Somewhere on the general secrets file?
+    console.log(request);
+    if (sshpass) {
+      globalsshuser += ':' + sshpass;
+    }
     console.log((new Date()) + ' Connection accepted.');
     if (match = request.headers.referer.match('/wetty/ssh/.+$')) {
         sshuser = match[0].replace('/wetty/ssh/', '') + '@';
     } else if (globalsshuser) {
         sshuser = globalsshuser + '@';
     }
-
+    console.log(sshuser);
     var term;
-    if (process.getuid() == 0) {
-        term = pty.spawn('/usr/bin/env', ['login'], {
+    if (process.getuid() == 0 || 1) {
+        term = pty.spawn('/usr/bin/env', ['docker', 'exec', '-it', '8b39c6bda3ce', 'bash'], {
             name: 'xterm-256color',
             cols: 80,
             rows: 30
         });
     } else {
-        term = pty.spawn('ssh', [sshuser + sshhost, '-p', sshport, '-o', 'PreferredAuthentications=' + sshauth], {
+      if (globalsshuser = 'vagrant:vagrant') {
+        console.log(sshuser);
+        term = pty.spawn('ssh', ['vagrant:vagrant' + sshhost + ':/var', '-p', sshport, '-o', 'PreferredAuthentications=' + sshauth], {
             name: 'xterm-256color',
             cols: 80,
             rows: 30
         });
+        term = pty.spawn('/usr/bin/env', ['bash'], {
+            name: 'xterm-256color',
+            cols: 80,
+            rows: 30
+        });
+      }
+
     }
+    console.log(sshuser);
     console.log((new Date()) + " PID=" + term.pid + " STARTED on behalf of user=" + sshuser)
     term.on('data', function(data) {
         socket.emit('output', data);
