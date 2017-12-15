@@ -1,0 +1,7 @@
+shellSecret: ENTER-SECRET-HERE
+shellAuthQuery: auth
+server.port: 3015
+server.host: 127.0.0.1
+dockerConfig:
+  socketPath: '/var/run/docker.sock'
+ssl: {}
