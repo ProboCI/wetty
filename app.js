@@ -5,32 +5,21 @@ var path = require('path');
 var server = require('socket.io');
 var pty = require('pty.js');
 var fs = require('fs');
+var jwt = require('jsonwebtoken');
+var Docker = require('dockerode');
+
+
+var dockerConfig = {
+  socketPath: '/var/run/docker.sock',
+}
+var shellSecret = 'coolSecret';
 
 var opts = require('optimist')
     .options({
-        sslkey: {
-            demand: false,
-            description: 'path to SSL key'
-        },
-        sslcert: {
-            demand: false,
-            description: 'path to SSL certificate'
-        },
-        sshhost: {
-            demand: false,
-            description: 'ssh server host'
-        },
-        sshport: {
-            demand: false,
-            description: 'ssh server port'
-        },
-        sshuser: {
-            demand: false,
-            description: 'ssh user'
-        },
-        sshauth: {
-            demand: false,
-            description: 'defaults to "password", you can use "publickey,password" instead'
+        config: {
+            demand: true,
+            alias: 'c',
+            description: 'config file location',
         },
         port: {
             demand: true,
@@ -41,32 +30,9 @@ var opts = require('optimist')
 
 var runhttps = false;
 var sshport = 22;
-var sshhost = 'localhost';
+var sshhost = '127.0.0.0';
 var sshauth = 'password,keyboard-interactive';
 var globalsshuser = '';
-
-if (opts.sshport) {
-    sshport = opts.sshport;
-}
-
-if (opts.sshhost) {
-    sshhost = opts.sshhost;
-}
-
-if (opts.sshauth) {
-	sshauth = opts.sshauth
-}
-
-if (opts.sshuser) {
-    globalsshuser = opts.sshuser;
-}
-
-if (opts.sslkey && opts.sslcert) {
-    runhttps = true;
-    opts['ssl'] = {};
-    opts.ssl['key'] = fs.readFileSync(path.resolve(opts.sslkey));
-    opts.ssl['cert'] = fs.readFileSync(path.resolve(opts.sslcert));
-}
 
 process.on('uncaughtException', function(e) {
     console.error('Error: ' + e);
@@ -97,58 +63,89 @@ io.on('connection', function(socket){
     var sshuser = '';
     var sshpass = 'vagrant';
     var request = socket.request;
+    var token;
 
-    // @TODO: From the request, get an authentication key.
-    // The key should be a salted version of what, the build id? And of course the build id should be in there also. Where is that salt stored? Somewhere on the general secrets file?
-    console.log(request);
-    if (sshpass) {
-      globalsshuser += ':' + sshpass;
-    }
-    console.log((new Date()) + ' Connection accepted.');
-    if (match = request.headers.referer.match('/wetty/ssh/.+$')) {
-        sshuser = match[0].replace('/wetty/ssh/', '') + '@';
-    } else if (globalsshuser) {
-        sshuser = globalsshuser + '@';
-    }
-    console.log(sshuser);
-    var term;
-    if (process.getuid() == 0 || 1) {
-        term = pty.spawn('/usr/bin/env', ['docker', 'exec', '-it', '8b39c6bda3ce', 'bash'], {
-            name: 'xterm-256color',
-            cols: 80,
-            rows: 30
-        });
-    } else {
-      if (globalsshuser = 'vagrant:vagrant') {
-        console.log(sshuser);
-        term = pty.spawn('ssh', ['vagrant:vagrant' + sshhost + ':/var', '-p', sshport, '-o', 'PreferredAuthentications=' + sshauth], {
-            name: 'xterm-256color',
-            cols: 80,
-            rows: 30
-        });
-        term = pty.spawn('/usr/bin/env', ['bash'], {
-            name: 'xterm-256color',
-            cols: 80,
-            rows: 30
-        });
+    token = {
+      containerNamePrefix: 'probo',
+      projectSlug: 'dzink/straightlampin',
+      projectId: '33978ed6-f5da-4e21-aa8b-067ae3573a66',
+      buildId: 'fd402906-7895-4590-8753-90a22b8b5d84',
+    };
+
+    token = jwt.sign({
+      data: token,
+    }, shellSecret, {
+      expiresIn: '1h',
+    });
+
+    console.log(token);
+    token = request.headers.referer.match(/abcd=([\w\d\.]*)/)[1];
+    token = jwt.verify(token, shellSecret).data;
+    console.log(token);
+
+    var containerName = `${token.containerNamePrefix}--${token.projectSlug.replace('/', '.')}--${token.projectId}--${token.buildId}`;
+
+    var docker = Docker(dockerConfig);
+    var containerId;
+
+    var next = function(err, container) {
+      var containerId = container.Id;
+      var term;
+      console.log(container);
+
+      if (sshpass) {
+        globalsshuser += ':' + sshpass;
+      }
+      console.log((new Date()) + ' Connection accepted.');
+      if (match = request.headers.referer.match('/wetty/ssh/.+$')) {
+          sshuser = match[0].replace('/wetty/ssh/', '') + '@';
+      } else if (globalsshuser) {
+          sshuser = globalsshuser + '@';
+      }
+      console.log(containerId);
+      pty.spawn('/usr/bin/env', ['docker', 'start', '8b39c6bda3ce'], {
+        name: 'xterm-256color',
+        cols: 80,
+        rows: 30,
+      });
+      term = pty.spawn('/usr/bin/env', ['docker', 'exec', '-it', '8b39c6bda3ce', 'bash'], {
+        name: 'xterm-256color',
+        cols: 80,
+        rows: 30,
+      });
+
+      console.log((new Date()) + " PID=" + term.pid + " STARTED on behalf of user=" + sshuser)
+      term.on('data', function(data) {
+          socket.emit('output', data);
+      });
+      term.on('exit', function(code) {
+          console.log((new Date()) + " PID=" + term.pid + " ENDED")
+      });
+      socket.on('resize', function(data) {
+          term.resize(data.col, data.row);
+      });
+      socket.on('input', function(data) {
+          term.write(data);
+      });
+      socket.on('disconnect', function() {
+          term.end();
+      });
+    };
+
+    docker.listContainers({all: true, size: false}, function(err, containers) {
+      var container;
+      if (err) return next(err);
+
+      function proboFilter(containerInfo) {
+        // .Names is an array, and first name in array is the main name
+        // container names in docker start with a /, so look for our prefix
+        // starting with second character (index 1)
+        return containerInfo.Names[0].indexOf(containerName) === 1;
       }
 
-    }
-    console.log(sshuser);
-    console.log((new Date()) + " PID=" + term.pid + " STARTED on behalf of user=" + sshuser)
-    term.on('data', function(data) {
-        socket.emit('output', data);
+      containers = containers.filter(proboFilter);
+      container = containers[0];
+      console.log(container);
+      next(err, container);
     });
-    term.on('exit', function(code) {
-        console.log((new Date()) + " PID=" + term.pid + " ENDED")
-    });
-    socket.on('resize', function(data) {
-        term.resize(data.col, data.row);
-    });
-    socket.on('input', function(data) {
-        term.write(data);
-    });
-    socket.on('disconnect', function() {
-        term.end();
-    });
-})
+});
