@@ -60,92 +60,126 @@ var io = server(httpserv,{path: '/wetty/socket.io'});
 
 // @TODO here we should ping back the probo app to get
 io.on('connection', function(socket){
-    var sshuser = '';
-    var sshpass = 'vagrant';
-    var request = socket.request;
-    var token;
+  var sshuser = '';
+  var sshpass = 'vagrant';
+  var request = socket.request;
+  var token;
 
-    token = {
-      containerNamePrefix: 'probo',
-      projectSlug: 'dzink/straightlampin',
-      projectId: '33978ed6-f5da-4e21-aa8b-067ae3573a66',
-      buildId: 'fd402906-7895-4590-8753-90a22b8b5d84',
-    };
+  // For now, spit out a token I can use to test.
+  token = {
+    containerNamePrefix: 'probo',
+    projectSlug: 'dzink/straightlampin',
+    projectId: '33978ed6-f5da-4e21-aa8b-067ae3573a66',
+    buildId: 'fd402906-7895-4590-8753-90a22b8b5d84',
+  };
 
-    token = jwt.sign({
-      data: token,
-    }, shellSecret, {
-      expiresIn: '1h',
-    });
+  token = jwt.sign({
+    data: token,
+  }, shellSecret, {
+    expiresIn: '1h',
+  });
 
-    console.log(token);
-    token = request.headers.referer.match(/abcd=([\w\d\.]*)/)[1];
-    token = jwt.verify(token, shellSecret).data;
-    console.log(token);
-
-    var containerName = `${token.containerNamePrefix}--${token.projectSlug.replace('/', '.')}--${token.projectId}--${token.buildId}`;
-
+  console.log(token);
+  try {
+    var term;
+    var containerName;
     var docker = Docker(dockerConfig);
-    var containerId;
 
+    token = request.headers.referer.match(/abcd=([\w\d\.]*)/)[1];;
+    token = jwt.verify(token, shellSecret).data;
+
+    containerName = `${token.containerNamePrefix}--${token.projectSlug.replace('/', '.')}--${token.projectId}--${token.buildId}`;
+
+    /**
+     * Kick off a shell instance.
+     */
     var next = function(err, container) {
-      var containerId = container.Id;
-      var term;
-      console.log(container);
+      try {
+        if (err) {
+          throw new Error('Error while connecting: ' . err);
+        }
 
-      if (sshpass) {
-        globalsshuser += ':' + sshpass;
-      }
-      console.log((new Date()) + ' Connection accepted.');
-      if (match = request.headers.referer.match('/wetty/ssh/.+$')) {
-          sshuser = match[0].replace('/wetty/ssh/', '') + '@';
-      } else if (globalsshuser) {
-          sshuser = globalsshuser + '@';
-      }
-      console.log(containerId);
-      pty.spawn('/usr/bin/env', ['docker', 'start', '8b39c6bda3ce'], {
-        name: 'xterm-256color',
-        cols: 80,
-        rows: 30,
-      });
-      term = pty.spawn('/usr/bin/env', ['docker', 'exec', '-it', '8b39c6bda3ce', 'bash'], {
-        name: 'xterm-256color',
-        cols: 80,
-        rows: 30,
-      });
+        if (sshpass) {
+          globalsshuser += ':' + sshpass;
+        }
+        console.log((new Date()) + ' Connection accepted.');
+        if (match = request.headers.referer.match('/wetty/ssh/.+$')) {
+            sshuser = match[0].replace('/wetty/ssh/', '') + '@';
+        } else if (globalsshuser) {
+            sshuser = globalsshuser + '@';
+        }
+        throw new Error("Input is not a number.");
+        pty.spawn('/usr/bin/env', ['docker', 'start', container.Id], {
+          name: 'xterm-256color',
+          cols: 80,
+          rows: 30,
+        });
+        term = pty.spawn('/usr/bin/env', ['docker', 'exec', '-it', container.Id, 'bash'], {
+          name: 'xterm-256color',
+          cols: 80,
+          rows: 30,
+        });
 
-      console.log((new Date()) + " PID=" + term.pid + " STARTED on behalf of user=" + sshuser)
-      term.on('data', function(data) {
-          socket.emit('output', data);
-      });
-      term.on('exit', function(code) {
-          console.log((new Date()) + " PID=" + term.pid + " ENDED")
-      });
-      socket.on('resize', function(data) {
-          term.resize(data.col, data.row);
-      });
-      socket.on('input', function(data) {
-          term.write(data);
-      });
-      socket.on('disconnect', function() {
-          term.end();
-      });
+        console.log((new Date()) + " PID=" + term.pid + " STARTED on behalf of user=" + sshuser)
+        term.on('data', function(data) {
+            socket.emit('output', data);
+        });
+        term.on('exit', function(code) {
+            console.log((new Date()) + " PID=" + term.pid + " ENDED")
+        });
+        socket.on('resize', function(data) {
+            term.resize(data.col, data.row);
+        });
+        socket.on('input', function(data) {
+            term.write(data);
+        });
+        socket.on('disconnect', function() {
+            term.end();
+        });
+
+      }
+      catch (e) {
+        throw new Error('Problem connecting to Probo.ci shell: ' + (e.message));
+      }
     };
 
+    /**
+     * Get the container referenced in the JWT.
+     */
     docker.listContainers({all: true, size: false}, function(err, containers) {
       var container;
-      if (err) return next(err);
+      try {
+        if (err) throw Error(err);
 
-      function proboFilter(containerInfo) {
-        // .Names is an array, and first name in array is the main name
-        // container names in docker start with a /, so look for our prefix
-        // starting with second character (index 1)
-        return containerInfo.Names[0].indexOf(containerName) === 1;
+        function proboFilter(containerInfo) {
+          // .Names is an array, and first name in array is the main name
+          // container names in docker start with a /, so look for our prefix
+          // starting with second character (index 1)
+          return containerInfo.Names[0].indexOf(containerName) === 1;
+        }
+
+        containers = containers.filter(proboFilter);
+        if (!containers) {
+          next('It is brokern');
+        }
+        container = containers[0];
       }
-
-      containers = containers.filter(proboFilter);
-      container = containers[0];
-      console.log(container);
-      next(err, container);
+      catch (e) {
+        throw new Error('Could not find Docker instance. ' + e.message);
+      }
+      next(null, container);
     });
+
+  } catch (e) {
+    var err;
+    if (e.name ==  'JsonWebTokenError') {
+      err = ('Token missing, invalid, or expired. Please refresh the build page and try again');
+    }
+    err = err || e.message;
+    console.log(err);
+    socket.emit('output', err);
+    socket.write(err);
+    console.log('problems');
+    return err;
+  }
 });
