@@ -39,15 +39,9 @@ config.load(function(error, config) {
   });
   app.use('/', express.static(path.join(__dirname, 'public')));
 
-  if (false) {
-    httpserv = https.createServer(config.ssl, app).listen(config['server.port'], function() {
-      log.info('https on port ' + config['server.port']);
-    });
-  } else {
-    httpserv = http.createServer(app).listen(config['server.port'], function() {
-      log.info('http on port ' + config['server.port']);
-    });
-  }
+  httpserv = http.createServer(app).listen(config['server.port'], function() {
+    log.info('http on port ' + config['server.port']);
+  });
 
   io = server(httpserv,{path: '/wetty/socket.io'});
 
