@@ -1,21 +1,25 @@
+var bunyan = require('bunyan');
+var Docker = require('dockerode');
 var express = require('express');
 var http = require('http');
 var https = require('https');
+var Loader = require('yaml-config-loader');
 var path = require('path');
 var server = require('socket.io');
 var pty = require('pty.js');
 var fs = require('fs');
 var jwt = require('jsonwebtoken');
-var Docker = require('dockerode');
-
-var Loader = require('yaml-config-loader');
 var yargs = require('yargs');
+
 var loader = new Loader();
 'use strict';
 
 var ms = require('ms');
 var config = require('./lib/config');
-
+var log = bunyan.createLogger({name: 'probo-shell', level: 'info',
+  streams: [{
+    stream: process.stdout
+  }]});
 process.title = 'probo-shell';
 
 config.load(function(error, config) {
@@ -27,23 +31,22 @@ config.load(function(error, config) {
   }
 
   process.on('uncaughtException', function(e) {
-      console.error(e);
+    log.error(e);
   });
 
   app.get('/wetty/ssh/:user', function(req, res) {
-      res.sendfile(__dirname + '/public/wetty/index.html');
+    res.sendfile(__dirname + '/public/wetty/index.html');
   });
   app.use('/', express.static(path.join(__dirname, 'public')));
 
-  // @TODO enable ssh
   if (false) {
-      httpserv = https.createServer(config.ssl, app).listen(config['server.port'], function() {
-          console.log('https on port ' + config['server.port']);
-      });
+    httpserv = https.createServer(config.ssl, app).listen(config['server.port'], function() {
+      log.info('https on port ' + config['server.port']);
+    });
   } else {
-      httpserv = http.createServer(app).listen(config['server.port'], function() {
-          console.log('http on port ' + config['server.port']);
-      });
+    httpserv = http.createServer(app).listen(config['server.port'], function() {
+      log.info('http on port ' + config['server.port']);
+    });
   }
 
   io = server(httpserv,{path: '/wetty/socket.io'});
@@ -52,6 +55,7 @@ config.load(function(error, config) {
     var request = socket.request;
     var token;
     var term;
+    var containerName;
 
     // @TODO remove this; this is just for testing.
     token = {
@@ -59,28 +63,34 @@ config.load(function(error, config) {
       projectSlug: 'dzink/straightlampin',
       projectId: '33978ed6-f5da-4e21-aa8b-067ae3573a66',
       buildId: 'fd402906-7895-4590-8753-90a22b8b5d84',
+      userName: 'dzink',
     };
-    token = `${token.containerNamePrefix}--${token.projectSlug.replace('/', '.')}--${token.projectId}--${token.buildId}`;
+    token.containerName = `${token.containerNamePrefix}--${token.projectSlug.replace('/', '.')}--${token.projectId}--${token.buildId}`;
 
-    token = jwt.sign({
-      data: token,
+    newToken = jwt.sign({
+      data: JSON.stringify(token),
     }, config.shellSecret, {
       expiresIn: '1h',
     });
 
-    console.log('new token', token);
+    log.info('new token', newToken);
 
     try {
+      var loginData;
       var containerName;
       var docker = Docker(config.dockerConfig);
       var matches;
       var shellAuthQueryRegex;
+      var keylogger = '';
 
+      // Get the token from the current request _GET.
       shellAuthQueryRegex = new RegExp(config.shellAuthQuery + '=\(\[\\w\\d\\.\]*\)', '');
       if (matches = request.headers.referer.match(shellAuthQueryRegex)) {
+        var token;
         token = matches[1];
-        console.log(token);
-        containerName = jwt.verify(token, config.shellSecret).data;
+        loginData = jwt.verify(token, config.shellSecret).data;
+        loginData = JSON.parse(loginData);
+        containerName = loginData.containerName;
       }
       else {
         throw new Error('Authentication token missing.')
@@ -90,6 +100,7 @@ config.load(function(error, config) {
        * Kick off a shell instance.
        */
       var next = function(err, container) {
+        var logString = '';
         try {
           if (err) {
             throw new Error('Error while connecting: ' . err);
@@ -101,20 +112,26 @@ config.load(function(error, config) {
             rows: 30,
           });
 
+          log.info('Connected to docker', loginData, 'PID ' + term.pid);
+
           term.on('data', function(data) {
-              socket.emit('output', data);
+            logString = logString.concat(data);
+            socket.emit('output', data);
           });
           term.on('exit', function(code) {
-              console.log((new Date()) + " PID=" + term.pid + " ENDED")
+            log.info('Probo-Shell Log:', 'Date: ' + (new Date()), loginData, logString);
+            log.info('exit', container.Id);
           });
           socket.on('resize', function(data) {
-              term.resize(data.col, data.row);
+            term.resize(data.col, data.row);
           });
           socket.on('input', function(data) {
-              term.write(data);
+            term.write(data);
           });
           socket.on('disconnect', function() {
-              term.end();
+            log.info('Probo-Shell Log:', 'Date: ' + (new Date()), loginData, logString);
+            log.info('disconnect', container.Id);
+            term.end();
           });
 
         }
@@ -139,12 +156,10 @@ config.load(function(error, config) {
           }
 
           containers = containers.filter(proboFilter);
-          console.log(containers);
           if (containers.length == 0) {
             throw new Error('Container not found');
           }
           container = containers[0];
-          console.log(container);
         }
         catch (e) {
           throw new Error('Could not connect to Docker instance: ' + e.message);
@@ -173,8 +188,6 @@ config.load(function(error, config) {
         err = ('Authentication token expired.');
       }
       err = err || e.message;
-      console.log(e);
-      console.log(err);
       socket.emit('output', err);
       socket.write('output', err);
       return false;
