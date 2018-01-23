@@ -5,3 +5,29 @@ server.host: 127.0.0.1
 dockerConfig:
   socketPath: '/var/run/docker.sock'
 ssl: {}
+operations:
+  bash:
+    - bash
+  log.apache.access:
+    - 'tail'
+    - '-F'
+    - '/var/log/apache2/access.log'
+  log.apache.error:
+    - 'tail'
+    - '-F'
+    - '/var/log/apache2/error.log'
+  log.mysql.error:
+    - 'tail'
+    - '-F'
+    - '/var/log/mysql/error.log'
+  log.drupal.watchdog:
+    - 'drush'
+    - '--root=/var/www/html'
+    - 'watchdog-show'
+    - '--full'
+    - '--extended'
+    - '--tail'
+  log.php.error:
+    - 'tail'
+    - '-F'
+    - '/var/log/php/error.log'

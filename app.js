@@ -16,7 +16,7 @@ var loader = new Loader();
 
 var ms = require('ms');
 var config = require('./lib/config');
-var log = bunyan.createLogger({name: 'probo-shell', level: 'info',
+var log = bunyan.createLogger({name: 'probo-shell', level: 'debug',
   streams: [{
     stream: process.stdout
   }]});
@@ -44,6 +44,59 @@ config.load(function(error, config) {
   });
 
   io = server(httpserv,{path: '/wetty/socket.io'});
+
+  function getQuery(query, request) {
+    // Get the token from the current request _GET.
+    queryRegex = new RegExp(query + '=\(\[\\w\\d\\.\]*\)', '');
+    if (matches = request.headers.referer.match(queryRegex)) {
+      return matches[1];
+    }
+    return false;
+  }
+
+  function getOperation(request, dockerCommandArray) {
+    var operationName = getQuery('op', request);
+    var operationCommandArray;
+    operationName = operationName || 'bash';
+    if (config.operations.hasOwnProperty(operationName)) {
+
+      // Need to use slice() to copy the config, as it will be changed.
+      operationCommandArray = config.operations[operationName].slice();
+    }
+    else {
+      throw new Exception('Unknown command ' . oeprationName);
+    }
+    operationCommandArray = operationAddTailLength(operationCommandArray, request);
+    operationCommandArray = operationAddWatchdogLength(operationCommandArray, request);
+
+    // Need to use slice() to copy the docker command, as it will be changed.
+    operationCommandArray = dockerCommandArray.slice().concat(operationCommandArray);
+    return operationCommandArray;
+  }
+
+  function operationAddTailLength(operationCommandArray, request) {
+    var logLength;
+    if (operationCommandArray[0] == 'tail' && (logLength = getQuery('log-length', request))) {
+      operationCommandArray.splice(1, 0, '-n');
+      if (logLength == 'all') {
+        operationCommandArray.splice(2, 0, '+1');
+      }
+      else {
+        operationCommandArray.splice(2, 0, logLength);
+      }
+    }
+    return operationCommandArray;
+  }
+
+  function operationAddWatchdogLength(operationCommandArray, request) {
+    var logLength;
+    if (operationCommandArray[2] == 'watchdog-show' && (logLength = getQuery('log-length', request))) {
+      operationCommandArray.splice(3, 0, '--count');
+      operationCommandArray.splice(4, 0, logLength);
+    }
+    log.info(operationCommandArray);
+    return operationCommandArray;
+  }
 
   io.on('connection', function(socket){
     var request = socket.request;
@@ -78,10 +131,7 @@ config.load(function(error, config) {
       var keylogger = '';
 
       // Get the token from the current request _GET.
-      shellAuthQueryRegex = new RegExp(config.shellAuthQuery + '=\(\[\\w\\d\\.\]*\)', '');
-      if (matches = request.headers.referer.match(shellAuthQueryRegex)) {
-        var token;
-        token = matches[1];
+      if (token = getQuery(config.shellAuthQuery, request)) {
         loginData = jwt.verify(token, config.shellSecret).data;
         loginData = JSON.parse(loginData);
         containerName = loginData.containerName;
@@ -100,7 +150,10 @@ config.load(function(error, config) {
             throw new Error('Error while connecting: ' . err);
           }
 
-          term = pty.spawn('/usr/bin/env', ['docker', 'exec', '-it', container.Id, 'bash'], {
+          dockerCommandArray = getOperation(request, ['docker', 'exec', '-it', container.Id]);
+
+          term = pty.spawn('/usr/bin/env', dockerCommandArray, {
+          // term = pty.spawn('/usr/bin/env', ['docker', 'exec', '-it', container.Id, 'tail', '-f', '/var/log/apache2/error.log'], {
             name: 'xterm-256color',
             cols: 80,
             rows: 30,
