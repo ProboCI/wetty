@@ -98,6 +98,15 @@ config.load(function(error, config) {
     return operationCommandArray;
   }
 
+  function sanitizeData(data) {
+    for (var n in config.sanitizeStrings) {
+      var replacement = config.sanitizeStrings[n].replacement || '<*****>';
+      var regex = new RegExp(config.sanitizeStrings[n].pattern, 'gi');;
+      data = data.replace(regex, replacement);
+    }
+    return data;
+  }
+
   io.on('connection', function(socket){
     var request = socket.request;
     var token;
@@ -153,7 +162,6 @@ config.load(function(error, config) {
           dockerCommandArray = getOperation(request, ['docker', 'exec', '-it', container.Id]);
 
           term = pty.spawn('/usr/bin/env', dockerCommandArray, {
-          // term = pty.spawn('/usr/bin/env', ['docker', 'exec', '-it', container.Id, 'tail', '-f', '/var/log/apache2/error.log'], {
             name: 'xterm-256color',
             cols: 80,
             rows: 30,
@@ -162,6 +170,9 @@ config.load(function(error, config) {
           log.info('Connected to docker', loginData, 'PID ' + term.pid);
 
           term.on('data', function(data) {
+            log.info(data);
+            data = sanitizeData(data, config.sanitizeStrings);
+            log.info(data);
             logString = logString.concat(data);
             socket.emit('output', data);
           });

@@ -31,3 +31,7 @@ operations:
     - 'tail'
     - '-F'
     - '/var/log/php/error.log'
+sanitizeStrings:
+  - pattern: 'probo-container-[\w|\d]*:'
+    replacement: 'probo-shell:'
+  - pattern: '127.0.0.1(:\d*)'
