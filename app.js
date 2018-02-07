@@ -64,7 +64,7 @@ config.load(function(error, config) {
       operationCommandArray = config.operations[operationName].slice();
     }
     else {
-      throw new Exception('Unknown command ' . oeprationName);
+      throw new Exception('Unknown command ' . operationName);
     }
     operationCommandArray = operationAddTailLength(operationCommandArray, request);
     operationCommandArray = operationAddWatchdogLength(operationCommandArray, request);
