@@ -113,24 +113,6 @@ config.load(function(error, config) {
     var term;
     var containerName;
 
-    // @TODO remove this; this is just for testing.
-    token = {
-      containerNamePrefix: 'probo',
-      projectSlug: 'dzink/straightlampin',
-      projectId: '33978ed6-f5da-4e21-aa8b-067ae3573a66',
-      buildId: 'fd402906-7895-4590-8753-90a22b8b5d84',
-      userName: 'dzink',
-    };
-    token.containerName = `${token.containerNamePrefix}--${token.projectSlug.replace('/', '.')}--${token.projectId}--${token.buildId}`;
-
-    newToken = jwt.sign({
-      data: JSON.stringify(token),
-    }, config.shellSecret, {
-      expiresIn: '1h',
-    });
-
-    log.info('new token', newToken);
-
     try {
       var loginData;
       var containerName;
