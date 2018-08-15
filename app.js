@@ -47,7 +47,7 @@ config.load(function(error, config) {
 
   function getQuery(query, request) {
     // Get the token from the current request _GET.
-    queryRegex = new RegExp(query + '=\(\[\\w\\d\\.\]*\)', '');
+    queryRegex = new RegExp(query + '=\(\[\\w-\\d\\.\]*\)', '');
     if (matches = request.headers.referer.match(queryRegex)) {
       return matches[1];
     }
