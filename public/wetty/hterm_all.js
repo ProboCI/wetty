@@ -12185,6 +12185,10 @@ hterm.Terminal.prototype.copySelectionToClipboard = function() {
     this.copyStringToClipboard(text);
 };
 
+hterm.Terminal.prototype.overlaySize = function() {
+  this.showOverlay(this.screenSize.width + 'x' + this.screenSize.height);
+};
+
 /**
  * Invoked by hterm.Terminal.Keyboard when a VT keystroke is detected.
  *
