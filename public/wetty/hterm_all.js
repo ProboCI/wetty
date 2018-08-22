@@ -12387,9 +12387,6 @@ hterm.Terminal.prototype.onResize_ = function() {
   this.realizeSize_(columnCount, rowCount);
   this.showZoomWarning_(this.scrollPort_.characterSize.zoomFactor != 1);
 
-  if (isNewSize)
-    this.overlaySize();
-
   this.restyleCursor_();
   this.scheduleSyncCursorPosition_();
 };
