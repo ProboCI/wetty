@@ -185,6 +185,8 @@ config.load(function(error, config) {
        */
       docker.listContainers({all: true, size: false}, function(err, containers) {
         var container;
+        var startAttempts = 0;
+        
         try {
           if (err) throw Error(err);
 
@@ -204,7 +206,10 @@ config.load(function(error, config) {
         catch (e) {
           throw new Error('Could not connect to Docker instance: ' + e.message);
         }
-        if (container.State != 'running') {
+        
+        // @TODO - add a configuration for start attempts.
+        
+        while (container.State != 'running' && startAttempts < 5) {
           try {
             var containerObject = docker.getContainer(container.Id);
             containerObject.start(function(err, data) {
@@ -214,6 +219,9 @@ config.load(function(error, config) {
           catch (e) {
             throw new Error('Could not start Docker instance.');
           }
+          
+          // @ TODO - add a configurable sleep function here to wait for n sec between attempts
+          startAttempts++;
         }
         else {
           next(null, container);
