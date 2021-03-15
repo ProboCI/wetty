@@ -1,15 +1,18 @@
-FROM node:0.10.38
-MAINTAINER Nathan LeClaire <nathan@docker.com>
+# ProboCI
+# https://www.probo.ci
 
-ADD . /app
-WORKDIR /app
-RUN npm install
-RUN apt-get update
-RUN apt-get install -y vim
-RUN useradd -d /home/term -m -s /bin/bash term
-RUN echo 'term:term' | chpasswd
+FROM node:4.9.1
 
-EXPOSE 3000
+RUN useradd --user-group --create-home --shell /bin/false probo
+RUN mkdir -p /home/probo/app
+COPY . /home/probo/app
+RUN chown -R probo:probo /home/probo/app
 
-ENTRYPOINT ["node"]
-CMD ["app.js", "-p", "3000"]
+USER probo
+RUN cd /home/probo/app/ && npm install
+
+WORKDIR /home/probo/app
+
+EXPOSE 3015
+
+CMD ["bin/probo-shell"]

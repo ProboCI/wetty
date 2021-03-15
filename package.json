@@ -9,7 +9,7 @@
         "optimist": "^0.6",
         "pty.js": "^0.3.0",
         "socket.io": "^1.3.7",
-        "yaml-config-loader": "^2.0.1",
+        "yaml-config-loader": "^2.1.0",
         "yargs": "^10.0.3"
     },
     "devDependencies": {
