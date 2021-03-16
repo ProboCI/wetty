@@ -15,4 +15,4 @@ WORKDIR /home/probo/app
 
 EXPOSE 3015
 
-CMD ["bin/probo-shell"]
+CMD ["bin/probo-shell.js"]
